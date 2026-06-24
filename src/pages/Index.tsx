@@ -4,12 +4,14 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 
-type TabId = 'income' | 'outcome' | 'stock' | 'inventory' | 'log';
+type TabId = 'income' | 'outcome' | 'stock' | 'catalog' | 'cells' | 'inventory' | 'log';
 
 const TABS: { id: TabId; label: string; icon: string; color: string }[] = [
   { id: 'income', label: 'Приход', icon: 'ArrowDownToLine', color: 'neon-green' },
   { id: 'outcome', label: 'Расход', icon: 'ArrowUpFromLine', color: 'neon-orange' },
   { id: 'stock', label: 'Остаток', icon: 'Boxes', color: 'neon-blue' },
+  { id: 'catalog', label: 'База товаров', icon: 'Tags', color: 'neon-green' },
+  { id: 'cells', label: 'Ячейки', icon: 'Grid3x3', color: 'neon-blue' },
   { id: 'inventory', label: 'Инвентаризация', icon: 'ClipboardCheck', color: 'neon-purple' },
   { id: 'log', label: 'Журнал', icon: 'ScrollText', color: 'neon-green' },
 ];
@@ -218,8 +220,160 @@ function LogScreen() {
   );
 }
 
+function CatalogScreen({
+  items,
+  onAdd,
+}: {
+  items: { sku: string; name: string; unit: string }[];
+  onAdd: (item: { sku: string; name: string; unit: string }) => void;
+}) {
+  const [sku, setSku] = useState('');
+  const [name, setName] = useState('');
+  const [unit, setUnit] = useState('шт');
+
+  const submit = () => {
+    if (!sku.trim() || !name.trim()) return;
+    onAdd({ sku: sku.trim(), name: name.trim(), unit: unit.trim() || 'шт' });
+    setSku('');
+    setName('');
+    setUnit('шт');
+  };
+
+  return (
+    <div className="grid lg:grid-cols-[1fr_1.4fr] gap-5">
+      <div className="glass rounded-2xl p-5 animate-fade-up">
+        <div className="flex items-center gap-2 mb-4">
+          <span className={`flex h-9 w-9 items-center justify-center rounded-xl ${colorMap['neon-green']}`}>
+            <Icon name="PackagePlus" size={18} />
+          </span>
+          <div>
+            <p className="font-display font-semibold leading-none">Новый товар в базу</p>
+            <p className="text-xs text-muted-foreground mt-1">Карточка товара для учёта на складе</p>
+          </div>
+        </div>
+        <div className="space-y-3">
+          <div>
+            <label className="text-xs text-muted-foreground mb-1 block">Артикул / штрихкод</label>
+            <Input value={sku} onChange={(e) => setSku(e.target.value)} placeholder="4607012340012" className="bg-background/60 font-mono" />
+          </div>
+          <div>
+            <label className="text-xs text-muted-foreground mb-1 block">Наименование</label>
+            <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="Кабель UTP cat.6, 305м" className="bg-background/60" />
+          </div>
+          <div>
+            <label className="text-xs text-muted-foreground mb-1 block">Единица измерения</label>
+            <Input value={unit} onChange={(e) => setUnit(e.target.value)} placeholder="шт" className="bg-background/60" />
+          </div>
+          <Button onClick={submit} className="w-full bg-neon-green text-background hover:bg-neon-green/90 font-semibold">
+            <Icon name="Plus" size={16} className="mr-1" /> Добавить в базу
+          </Button>
+        </div>
+      </div>
+      <div className="glass rounded-2xl overflow-hidden animate-fade-up" style={{ animationDelay: '0.08s' }}>
+        <div className="flex items-center justify-between p-5 border-b border-border">
+          <p className="font-display font-semibold">База товаров</p>
+          <Badge className={`border ${colorMap['neon-green']}`}>{items.length} позиций</Badge>
+        </div>
+        <div className="divide-y divide-border max-h-[440px] overflow-y-auto">
+          {items.map((item, i) => (
+            <div key={item.sku + i} className="flex items-center gap-4 px-5 py-3.5 hover:bg-background/40 transition-colors">
+              <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-neon-green/10 text-neon-green border border-neon-green/30">
+                <Icon name="Tag" size={15} />
+              </span>
+              <div className="flex-1 min-w-0">
+                <p className="font-medium truncate">{item.name}</p>
+                <p className="text-xs text-muted-foreground font-mono">{item.sku}</p>
+              </div>
+              <span className="text-xs text-muted-foreground">{item.unit}</span>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function CellsScreen({
+  cells,
+  onAdd,
+}: {
+  cells: { code: string; zone: string; capacity: number }[];
+  onAdd: (cell: { code: string; zone: string; capacity: number }) => void;
+}) {
+  const [code, setCode] = useState('');
+  const [zone, setZone] = useState('A');
+  const [capacity, setCapacity] = useState('100');
+
+  const submit = () => {
+    if (!code.trim()) return;
+    onAdd({ code: code.trim().toUpperCase(), zone: zone.trim().toUpperCase() || 'A', capacity: Number(capacity) || 0 });
+    setCode('');
+    setCapacity('100');
+  };
+
+  return (
+    <div className="grid lg:grid-cols-[1fr_1.4fr] gap-5">
+      <div className="glass rounded-2xl p-5 animate-fade-up">
+        <div className="flex items-center gap-2 mb-4">
+          <span className={`flex h-9 w-9 items-center justify-center rounded-xl ${colorMap['neon-blue']}`}>
+            <Icon name="Grid3x3" size={18} />
+          </span>
+          <div>
+            <p className="font-display font-semibold leading-none">Новая ячейка</p>
+            <p className="text-xs text-muted-foreground mt-1">Адрес хранения товара на складе</p>
+          </div>
+        </div>
+        <div className="space-y-3">
+          <div>
+            <label className="text-xs text-muted-foreground mb-1 block">Код ячейки</label>
+            <Input value={code} onChange={(e) => setCode(e.target.value)} placeholder="A-01-04" className="bg-background/60 font-mono" />
+          </div>
+          <div>
+            <label className="text-xs text-muted-foreground mb-1 block">Зона</label>
+            <Input value={zone} onChange={(e) => setZone(e.target.value)} placeholder="A" className="bg-background/60" />
+          </div>
+          <div>
+            <label className="text-xs text-muted-foreground mb-1 block">Вместимость, ед.</label>
+            <Input value={capacity} onChange={(e) => setCapacity(e.target.value)} type="number" placeholder="100" className="bg-background/60" />
+          </div>
+          <Button onClick={submit} className="w-full bg-neon-blue text-background hover:bg-neon-blue/90 font-semibold">
+            <Icon name="Plus" size={16} className="mr-1" /> Создать ячейку
+          </Button>
+        </div>
+      </div>
+      <div className="glass rounded-2xl p-5 animate-fade-up" style={{ animationDelay: '0.08s' }}>
+        <div className="flex items-center justify-between mb-4">
+          <p className="font-display font-semibold">Адреса хранения</p>
+          <Badge className={`border ${colorMap['neon-blue']}`}>{cells.length} ячеек</Badge>
+        </div>
+        <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 max-h-[440px] overflow-y-auto pr-1">
+          {cells.map((c, i) => (
+            <div key={c.code + i} className="rounded-xl border border-border bg-background/40 p-3 hover:bg-background/60 transition-colors">
+              <div className="flex items-center justify-between mb-2">
+                <span className="font-mono text-sm font-semibold text-neon-blue">{c.code}</span>
+                <span className="flex h-6 w-6 items-center justify-center rounded-lg bg-neon-blue/10 text-neon-blue text-[11px] font-bold">{c.zone}</span>
+              </div>
+              <p className="text-xs text-muted-foreground">Вместимость: {c.capacity}</p>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function Index() {
   const [active, setActive] = useState<TabId>('income');
+  const [catalog, setCatalog] = useState(
+    STOCK.map((s) => ({ sku: s.sku, name: s.name, unit: 'шт' }))
+  );
+  const [cells, setCells] = useState([
+    { code: 'A-01-04', zone: 'A', capacity: 200 },
+    { code: 'A-02-11', zone: 'A', capacity: 150 },
+    { code: 'B-03-07', zone: 'B', capacity: 80 },
+    { code: 'B-01-02', zone: 'B', capacity: 300 },
+    { code: 'C-05-03', zone: 'C', capacity: 120 },
+  ]);
   const tab = TABS.find((t) => t.id === active)!;
 
   return (
@@ -288,6 +442,12 @@ export default function Index() {
         <div key={active}>
           {(active === 'income' || active === 'outcome') && <OpScreen tab={tab} />}
           {active === 'stock' && <StockScreen />}
+          {active === 'catalog' && (
+            <CatalogScreen items={catalog} onAdd={(item) => setCatalog((prev) => [item, ...prev])} />
+          )}
+          {active === 'cells' && (
+            <CellsScreen cells={cells} onAdd={(cell) => setCells((prev) => [cell, ...prev])} />
+          )}
           {active === 'inventory' && <InventoryScreen />}
           {active === 'log' && <LogScreen />}
         </div>
