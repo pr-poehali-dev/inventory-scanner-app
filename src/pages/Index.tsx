@@ -1,4 +1,5 @@
-import { useState } from 'react';
+import { useState, useRef } from 'react';
+import * as XLSX from 'xlsx';
 import Icon from '@/components/ui/icon';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -223,68 +224,158 @@ function LogScreen() {
 function CatalogScreen({
   items,
   onAdd,
+  onBulkAdd,
 }: {
   items: { sku: string; name: string; unit: string }[];
   onAdd: (item: { sku: string; name: string; unit: string }) => void;
+  onBulkAdd: (items: { sku: string; name: string; unit: string }[]) => void;
 }) {
   const [sku, setSku] = useState('');
   const [name, setName] = useState('');
   const [unit, setUnit] = useState('шт');
+  const [dragging, setDragging] = useState(false);
+  const [importing, setImporting] = useState(false);
+  const [importResult, setImportResult] = useState<{ count: number; skipped: number } | null>(null);
+  const [search, setSearch] = useState('');
+  const fileRef = useRef<HTMLInputElement>(null);
 
   const submit = () => {
     if (!sku.trim() || !name.trim()) return;
     onAdd({ sku: sku.trim(), name: name.trim(), unit: unit.trim() || 'шт' });
-    setSku('');
-    setName('');
-    setUnit('шт');
+    setSku(''); setName(''); setUnit('шт');
   };
 
+  const parseFile = (file: File) => {
+    setImporting(true);
+    setImportResult(null);
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      try {
+        const wb = XLSX.read(e.target?.result, { type: 'array' });
+        const ws = wb.Sheets[wb.SheetNames[0]];
+        const rows: Record<string, unknown>[] = XLSX.utils.sheet_to_json(ws, { defval: '' });
+
+        const parsed: { sku: string; name: string; unit: string }[] = [];
+        let skipped = 0;
+
+        rows.forEach((row) => {
+          const vals = Object.values(row).map((v) => String(v).trim());
+          // Ищем штрихкод: число 8-14 цифр
+          const skuVal = vals.find((v) => /^\d{8,14}$/.test(v)) ?? '';
+          // Ищем наименование: самая длинная строка не похожая на число
+          const nameVal = vals
+            .filter((v) => v && !/^\d+$/.test(v) && v !== skuVal)
+            .sort((a, b) => b.length - a.length)[0] ?? '';
+
+          if (skuVal && nameVal) {
+            parsed.push({ sku: skuVal, name: nameVal, unit: 'шт' });
+          } else {
+            skipped++;
+          }
+        });
+
+        onBulkAdd(parsed);
+        setImportResult({ count: parsed.length, skipped });
+      } catch {
+        setImportResult({ count: 0, skipped: -1 });
+      }
+      setImporting(false);
+    };
+    reader.readAsArrayBuffer(file);
+  };
+
+  const onDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    setDragging(false);
+    const file = e.dataTransfer.files[0];
+    if (file) parseFile(file);
+  };
+
+  const filtered = items.filter(
+    (it) =>
+      it.name.toLowerCase().includes(search.toLowerCase()) ||
+      it.sku.includes(search)
+  );
+
   return (
-    <div className="grid lg:grid-cols-[1fr_1.4fr] gap-5">
-      <div className="glass rounded-2xl p-5 animate-fade-up">
-        <div className="flex items-center gap-2 mb-4">
-          <span className={`flex h-9 w-9 items-center justify-center rounded-xl ${colorMap['neon-green']}`}>
-            <Icon name="PackagePlus" size={18} />
-          </span>
-          <div>
-            <p className="font-display font-semibold leading-none">Новый товар в базу</p>
-            <p className="text-xs text-muted-foreground mt-1">Карточка товара для учёта на складе</p>
+    <div className="grid lg:grid-cols-[1fr_1.5fr] gap-5">
+      <div className="space-y-4">
+        {/* Excel импорт */}
+        <div
+          className={`glass rounded-2xl p-5 animate-fade-up border-2 border-dashed transition-colors cursor-pointer ${dragging ? 'border-neon-green bg-neon-green/5' : 'border-border hover:border-neon-green/40'}`}
+          onDragOver={(e) => { e.preventDefault(); setDragging(true); }}
+          onDragLeave={() => setDragging(false)}
+          onDrop={onDrop}
+          onClick={() => fileRef.current?.click()}
+        >
+          <input
+            ref={fileRef}
+            type="file"
+            accept=".xlsx,.xls,.csv"
+            className="hidden"
+            onChange={(e) => { if (e.target.files?.[0]) parseFile(e.target.files[0]); e.target.value = ''; }}
+          />
+          <div className="flex flex-col items-center text-center gap-2 py-2">
+            <span className={`flex h-12 w-12 items-center justify-center rounded-2xl mb-1 ${dragging ? colorMap['neon-green'] : 'bg-secondary'}`}>
+              {importing
+                ? <Icon name="LoaderCircle" size={24} className="animate-spin text-neon-green" />
+                : <Icon name="FileSpreadsheet" size={24} className={dragging ? 'text-neon-green' : 'text-muted-foreground'} />
+              }
+            </span>
+            <p className="font-display font-semibold">{dragging ? 'Отпустите файл' : 'Загрузить из Excel'}</p>
+            <p className="text-xs text-muted-foreground">Перетащите .xlsx / .xls файл сюда или нажмите для выбора</p>
+            <p className="text-[11px] text-muted-foreground/60">Колонки: Наименование + Штрихкод — в любом порядке</p>
           </div>
+          {importResult && (
+            <div className={`mt-3 rounded-xl px-4 py-2.5 text-sm flex items-center gap-2 ${importResult.skipped === -1 ? 'bg-destructive/10 text-destructive' : 'bg-neon-green/10 text-neon-green border border-neon-green/30'}`}>
+              {importResult.skipped === -1
+                ? <><Icon name="CircleX" size={15} /> Ошибка чтения файла</>
+                : <><Icon name="CircleCheck" size={15} /> Загружено {importResult.count} товаров{importResult.skipped > 0 ? `, пропущено ${importResult.skipped}` : ''}</>
+              }
+            </div>
+          )}
         </div>
-        <div className="space-y-3">
-          <div>
-            <label className="text-xs text-muted-foreground mb-1 block">Артикул / штрихкод</label>
-            <Input value={sku} onChange={(e) => setSku(e.target.value)} placeholder="4607012340012" className="bg-background/60 font-mono" />
+
+        {/* Ручное добавление */}
+        <div className="glass rounded-2xl p-5 animate-fade-up" style={{ animationDelay: '0.06s' }}>
+          <p className="font-display font-semibold mb-3 text-sm">Добавить вручную</p>
+          <div className="space-y-2.5">
+            <Input value={sku} onChange={(e) => setSku(e.target.value)} placeholder="Штрихкод" className="bg-background/60 font-mono" />
+            <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="Наименование" className="bg-background/60" />
+            <Input value={unit} onChange={(e) => setUnit(e.target.value)} placeholder="Ед. изм. (шт)" className="bg-background/60" />
+            <Button onClick={submit} className="w-full bg-neon-green text-background hover:bg-neon-green/90 font-semibold">
+              <Icon name="Plus" size={16} className="mr-1" /> Добавить
+            </Button>
           </div>
-          <div>
-            <label className="text-xs text-muted-foreground mb-1 block">Наименование</label>
-            <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="Кабель UTP cat.6, 305м" className="bg-background/60" />
-          </div>
-          <div>
-            <label className="text-xs text-muted-foreground mb-1 block">Единица измерения</label>
-            <Input value={unit} onChange={(e) => setUnit(e.target.value)} placeholder="шт" className="bg-background/60" />
-          </div>
-          <Button onClick={submit} className="w-full bg-neon-green text-background hover:bg-neon-green/90 font-semibold">
-            <Icon name="Plus" size={16} className="mr-1" /> Добавить в базу
-          </Button>
         </div>
       </div>
-      <div className="glass rounded-2xl overflow-hidden animate-fade-up" style={{ animationDelay: '0.08s' }}>
-        <div className="flex items-center justify-between p-5 border-b border-border">
-          <p className="font-display font-semibold">База товаров</p>
-          <Badge className={`border ${colorMap['neon-green']}`}>{items.length} позиций</Badge>
+
+      {/* Список товаров */}
+      <div className="glass rounded-2xl overflow-hidden animate-fade-up" style={{ animationDelay: '0.1s' }}>
+        <div className="flex items-center gap-3 p-4 border-b border-border">
+          <div className="relative flex-1">
+            <Icon name="Search" size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
+            <Input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Поиск по названию или коду…" className="pl-9 bg-background/60 h-8 text-sm" />
+          </div>
+          <Badge className={`border ${colorMap['neon-green']} shrink-0`}>{items.length} позиций</Badge>
         </div>
-        <div className="divide-y divide-border max-h-[440px] overflow-y-auto">
-          {items.map((item, i) => (
-            <div key={item.sku + i} className="flex items-center gap-4 px-5 py-3.5 hover:bg-background/40 transition-colors">
-              <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-neon-green/10 text-neon-green border border-neon-green/30">
-                <Icon name="Tag" size={15} />
+        <div className="divide-y divide-border max-h-[520px] overflow-y-auto">
+          {filtered.length === 0 && (
+            <div className="flex flex-col items-center gap-2 py-12 text-muted-foreground">
+              <Icon name="PackageSearch" size={32} />
+              <p className="text-sm">{items.length === 0 ? 'База пуста — загрузите Excel или добавьте вручную' : 'Ничего не найдено'}</p>
+            </div>
+          )}
+          {filtered.map((item, i) => (
+            <div key={item.sku + i} className="flex items-center gap-3 px-4 py-3 hover:bg-background/40 transition-colors">
+              <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-neon-green/10 text-neon-green border border-neon-green/20">
+                <Icon name="Tag" size={13} />
               </span>
               <div className="flex-1 min-w-0">
-                <p className="font-medium truncate">{item.name}</p>
-                <p className="text-xs text-muted-foreground font-mono">{item.sku}</p>
+                <p className="text-sm font-medium truncate">{item.name}</p>
+                <p className="text-[11px] text-muted-foreground font-mono">{item.sku}</p>
               </div>
-              <span className="text-xs text-muted-foreground">{item.unit}</span>
+              <span className="text-xs text-muted-foreground shrink-0">{item.unit}</span>
             </div>
           ))}
         </div>
@@ -443,7 +534,11 @@ export default function Index() {
           {(active === 'income' || active === 'outcome') && <OpScreen tab={tab} />}
           {active === 'stock' && <StockScreen />}
           {active === 'catalog' && (
-            <CatalogScreen items={catalog} onAdd={(item) => setCatalog((prev) => [item, ...prev])} />
+            <CatalogScreen
+              items={catalog}
+              onAdd={(item) => setCatalog((prev) => [item, ...prev])}
+              onBulkAdd={(newItems) => setCatalog((prev) => [...newItems, ...prev])}
+            />
           )}
           {active === 'cells' && (
             <CellsScreen cells={cells} onAdd={(cell) => setCells((prev) => [cell, ...prev])} />
