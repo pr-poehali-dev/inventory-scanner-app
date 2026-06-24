@@ -1,0 +1,27 @@
+{
+  "tests": [
+    {
+      "name": "Login admin success",
+      "method": "POST",
+      "path": "/?action=login",
+      "body": {"email": "v.ermikhin@door.ru", "password": "heps458lokt"},
+      "expectedStatus": 200,
+      "bodyMatcher": "partial"
+    },
+    {
+      "name": "Login wrong password",
+      "method": "POST",
+      "path": "/?action=login",
+      "body": {"email": "v.ermikhin@door.ru", "password": "wrongpass"},
+      "expectedStatus": 401,
+      "bodyMatcher": "partial"
+    },
+    {
+      "name": "Me without token",
+      "method": "GET",
+      "path": "/?action=me",
+      "expectedStatus": 401,
+      "bodyMatcher": "partial"
+    }
+  ]
+}

@@ -1,20 +1,186 @@
-import { useState, useRef } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import * as XLSX from 'xlsx';
 import Icon from '@/components/ui/icon';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 
-type TabId = 'income' | 'outcome' | 'stock' | 'catalog' | 'cells' | 'inventory' | 'log';
+const AUTH_URL = 'https://functions.poehali.dev/dd012b60-b637-4820-a0f3-0c9bcad131c1';
 
-const TABS: { id: TabId; label: string; icon: string; color: string }[] = [
+type User = { id: number; name: string; email: string; role: 'admin' | 'employee' };
+
+
+function api(action: string, method: 'GET' | 'POST', body?: object) {
+  const token = localStorage.getItem('wh_token') || '';
+  return fetch(`${AUTH_URL}?action=${action}`, {
+    method,
+    headers: { 'Content-Type': 'application/json', 'X-Session-Token': token },
+    body: body ? JSON.stringify(body) : undefined,
+  }).then((r) => r.json());
+}
+
+function LoginScreen({ onLogin }: { onLogin: (user: User, token: string) => void }) {
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [error, setError] = useState('');
+  const [loading, setLoading] = useState(false);
+
+  const submit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setLoading(true); setError('');
+    const res = await api('login', 'POST', { email, password });
+    setLoading(false);
+    if (res.error) { setError(res.error); return; }
+    localStorage.setItem('wh_token', res.token);
+    onLogin(res.user, res.token);
+  };
+
+  return (
+    <div className="min-h-screen flex items-center justify-center p-4">
+      <div className="w-full max-w-sm animate-fade-up">
+        <div className="flex items-center gap-3 mb-8 justify-center">
+          <span className="flex h-12 w-12 items-center justify-center rounded-2xl bg-neon-green text-background glow-green">
+            <Icon name="Warehouse" size={22} />
+          </span>
+          <div>
+            <p className="font-display text-xl font-bold leading-none tracking-wide">СКЛАД·СИСТЕМА</p>
+            <p className="text-[11px] text-muted-foreground mt-0.5">Адресное хранение · Сканер · Накладные</p>
+          </div>
+        </div>
+        <form onSubmit={submit} className="glass rounded-2xl p-6 space-y-4">
+          <p className="font-display text-lg font-semibold text-center">Вход в систему</p>
+          <div>
+            <label className="text-xs text-muted-foreground mb-1 block">Email</label>
+            <Input value={email} onChange={(e) => setEmail(e.target.value)} placeholder="user@company.ru" type="email" className="bg-background/60" autoFocus />
+          </div>
+          <div>
+            <label className="text-xs text-muted-foreground mb-1 block">Пароль</label>
+            <Input value={password} onChange={(e) => setPassword(e.target.value)} placeholder="••••••••" type="password" className="bg-background/60" />
+          </div>
+          {error && (
+            <div className="flex items-center gap-2 rounded-xl bg-destructive/10 border border-destructive/30 text-destructive text-sm px-3 py-2">
+              <Icon name="CircleAlert" size={15} /> {error}
+            </div>
+          )}
+          <Button type="submit" disabled={loading} className="w-full bg-neon-green text-background hover:bg-neon-green/90 font-semibold">
+            {loading ? <Icon name="LoaderCircle" size={16} className="animate-spin mr-2" /> : <Icon name="LogIn" size={16} className="mr-2" />}
+            Войти
+          </Button>
+        </form>
+      </div>
+    </div>
+  );
+}
+
+function UsersScreen() {
+  const [users, setUsers] = useState<{ id: number; name: string; email: string; role: string; created_at: string }[]>([]);
+  const [name, setName] = useState('');
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [role, setRole] = useState<'employee' | 'admin'>('employee');
+  const [error, setError] = useState('');
+  const [success, setSuccess] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [delConfirm, setDelConfirm] = useState<number | null>(null);
+
+  const load = () => api('users', 'GET').then((r) => { if (r.users) setUsers(r.users); });
+  useEffect(() => { load(); }, []);
+
+  const submit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError(''); setSuccess(''); setLoading(true);
+    const res = await api('register', 'POST', { name, email, password, role });
+    setLoading(false);
+    if (res.error) { setError(res.error); return; }
+    setSuccess('Сотрудник добавлен'); setName(''); setEmail(''); setPassword(''); setRole('employee');
+    load();
+  };
+
+  const deleteUser = async (id: number) => {
+    await api('delete_user', 'POST', { id });
+    setDelConfirm(null);
+    load();
+  };
+
+  return (
+    <div className="grid lg:grid-cols-[1fr_1.5fr] gap-5">
+      <div className="glass rounded-2xl p-5 animate-fade-up">
+        <div className="flex items-center gap-2 mb-4">
+          <span className={`flex h-9 w-9 items-center justify-center rounded-xl ${colorMap['neon-purple']}`}>
+            <Icon name="UserPlus" size={18} />
+          </span>
+          <div>
+            <p className="font-display font-semibold leading-none">Новый сотрудник</p>
+            <p className="text-xs text-muted-foreground mt-1">Добавить доступ в систему</p>
+          </div>
+        </div>
+        <form onSubmit={submit} className="space-y-3">
+          <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="Имя Фамилия" className="bg-background/60" />
+          <Input value={email} onChange={(e) => setEmail(e.target.value)} placeholder="Email" type="email" className="bg-background/60" />
+          <Input value={password} onChange={(e) => setPassword(e.target.value)} placeholder="Пароль" type="password" className="bg-background/60" />
+          <div className="flex gap-2">
+            {(['employee', 'admin'] as const).map((r) => (
+              <button key={r} type="button" onClick={() => setRole(r)}
+                className={`flex-1 rounded-xl border px-3 py-2 text-sm font-medium transition-all ${role === r ? colorMap['neon-purple'] + ' border' : 'border-border text-muted-foreground hover:bg-secondary'}`}>
+                {r === 'admin' ? 'Администратор' : 'Сотрудник'}
+              </button>
+            ))}
+          </div>
+          {error && <p className="text-sm text-destructive flex gap-1 items-center"><Icon name="CircleAlert" size={13} />{error}</p>}
+          {success && <p className="text-sm text-neon-green flex gap-1 items-center"><Icon name="CircleCheck" size={13} />{success}</p>}
+          <Button type="submit" disabled={loading} className="w-full bg-neon-purple text-white hover:bg-neon-purple/90 font-semibold">
+            {loading ? <Icon name="LoaderCircle" size={16} className="animate-spin mr-1" /> : <Icon name="UserPlus" size={16} className="mr-1" />}
+            Добавить
+          </Button>
+        </form>
+      </div>
+      <div className="glass rounded-2xl overflow-hidden animate-fade-up" style={{ animationDelay: '0.08s' }}>
+        <div className="flex items-center justify-between p-5 border-b border-border">
+          <p className="font-display font-semibold">Сотрудники</p>
+          <Badge className={`border ${colorMap['neon-purple']}`}>{users.length} чел.</Badge>
+        </div>
+        <div className="divide-y divide-border max-h-[480px] overflow-y-auto">
+          {users.map((u) => (
+            <div key={u.id} className="group flex items-center gap-3 px-5 py-3.5 hover:bg-background/40 transition-colors">
+              <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-neon-purple/10 text-neon-purple border border-neon-purple/20 font-semibold text-sm">
+                {u.name.charAt(0)}
+              </span>
+              <div className="flex-1 min-w-0">
+                <p className="font-medium truncate">{u.name}</p>
+                <p className="text-xs text-muted-foreground">{u.email}</p>
+              </div>
+              <Badge className={`shrink-0 border ${u.role === 'admin' ? colorMap['neon-orange'] : colorMap['neon-blue']}`}>
+                {u.role === 'admin' ? 'Админ' : 'Сотрудник'}
+              </Badge>
+              {u.role !== 'admin' && (
+                delConfirm === u.id
+                  ? <div className="flex gap-1">
+                      <button onClick={() => deleteUser(u.id)} className="h-7 rounded-lg bg-destructive/20 border border-destructive/40 text-destructive px-2 text-xs hover:bg-destructive/30 transition-colors">Да</button>
+                      <button onClick={() => setDelConfirm(null)} className="h-7 rounded-lg bg-secondary px-2 text-xs text-muted-foreground">Нет</button>
+                    </div>
+                  : <button onClick={() => setDelConfirm(u.id)} className="opacity-0 group-hover:opacity-100 h-7 w-7 flex items-center justify-center rounded-lg text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-all">
+                      <Icon name="Trash2" size={14} />
+                    </button>
+              )}
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+type TabId = 'income' | 'outcome' | 'stock' | 'catalog' | 'cells' | 'inventory' | 'log' | 'users';
+
+const ALL_TABS: { id: TabId; label: string; icon: string; color: string; adminOnly?: boolean }[] = [
   { id: 'income', label: 'Приход', icon: 'ArrowDownToLine', color: 'neon-green' },
   { id: 'outcome', label: 'Расход', icon: 'ArrowUpFromLine', color: 'neon-orange' },
   { id: 'stock', label: 'Остаток', icon: 'Boxes', color: 'neon-blue' },
-  { id: 'catalog', label: 'База товаров', icon: 'Tags', color: 'neon-green' },
-  { id: 'cells', label: 'Ячейки', icon: 'Grid3x3', color: 'neon-blue' },
-  { id: 'inventory', label: 'Инвентаризация', icon: 'ClipboardCheck', color: 'neon-purple' },
-  { id: 'log', label: 'Журнал', icon: 'ScrollText', color: 'neon-green' },
+  { id: 'catalog', label: 'База товаров', icon: 'Tags', color: 'neon-green', adminOnly: true },
+  { id: 'cells', label: 'Ячейки', icon: 'Grid3x3', color: 'neon-blue', adminOnly: true },
+  { id: 'inventory', label: 'Инвентаризация', icon: 'ClipboardCheck', color: 'neon-purple', adminOnly: true },
+  { id: 'log', label: 'Журнал', icon: 'ScrollText', color: 'neon-green', adminOnly: true },
+  { id: 'users', label: 'Сотрудники', icon: 'Users', color: 'neon-purple', adminOnly: true },
 ];
 
 type StockItem = { id: string; sku: string; name: string; cell: string; qty: number; min: number };
@@ -504,7 +670,31 @@ function CellsScreen({
 }
 
 export default function Index() {
+  const [user, setUser] = useState<User | null>(null);
+  const [authLoading, setAuthLoading] = useState(true);
   const [active, setActive] = useState<TabId>('income');
+
+  // Проверяем сохранённую сессию при загрузке
+  useEffect(() => {
+    const token = localStorage.getItem('wh_token');
+    if (!token) { setAuthLoading(false); return; }
+    api('me', 'GET').then((res) => {
+      if (res.user) setUser(res.user);
+      else localStorage.removeItem('wh_token');
+      setAuthLoading(false);
+    });
+  }, []);
+
+  const handleLogin = (u: User) => {
+    setUser(u);
+    setActive('income');
+  };
+
+  const handleLogout = async () => {
+    await api('logout', 'POST');
+    localStorage.removeItem('wh_token');
+    setUser(null);
+  };
 
   const [incomes, setIncomes] = useState<Invoice[]>([
     { id: uid(), date: '24.06.2026, 14:30', num: '№ПР-0001', items: [{ id: uid(), sku: '4607012340012', name: 'Кабель UTP cat.6', cell: 'A-01-04', qty: 10 }, { id: uid(), sku: '4601546021304', name: 'Коннектор RJ-45', cell: 'A-02-11', qty: 100 }] },
@@ -543,7 +733,21 @@ export default function Index() {
     { id: uid(), time: '09:30', user: 'Сидоров К.', action: 'Приход', target: 'Роутер AX1800 +6', color: 'neon-green' },
   ]);
 
-  const tab = TABS.find((t) => t.id === active)!;
+  if (authLoading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <Icon name="LoaderCircle" size={32} className="animate-spin text-neon-green" />
+      </div>
+    );
+  }
+
+  if (!user) return <LoginScreen onLogin={handleLogin} />;
+
+  const isAdmin = user.role === 'admin';
+  const TABS = ALL_TABS.filter((t) => !t.adminOnly || isAdmin);
+  const tab = TABS.find((t) => t.id === active) ?? TABS[0];
+  // Если текущая вкладка недоступна роли — сбрасываем на первую
+  const activeTab = TABS.find((t) => t.id === active) ? active : TABS[0].id;
   const lowCount = stock.filter((s) => s.qty <= s.min).length;
 
   return (
@@ -559,11 +763,24 @@ export default function Index() {
               <p className="text-[11px] text-muted-foreground mt-0.5">Адресное хранение · Сканер · Накладные</p>
             </div>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-3">
             <span className="hidden sm:flex items-center gap-1.5 text-xs text-neon-green">
               <span className="h-2 w-2 rounded-full bg-neon-green animate-pulse" /> Сканер подключён
             </span>
-            <span className="flex h-9 w-9 items-center justify-center rounded-full bg-secondary text-sm font-semibold">ИА</span>
+            <div className="flex items-center gap-2">
+              <div className="text-right hidden sm:block">
+                <p className="text-sm font-medium leading-none">{user.name}</p>
+                <p className="text-[11px] text-muted-foreground mt-0.5">
+                  {isAdmin ? '👑 Администратор' : 'Сотрудник'}
+                </p>
+              </div>
+              <span className="flex h-9 w-9 items-center justify-center rounded-full bg-neon-purple/20 text-neon-purple border border-neon-purple/30 text-sm font-semibold">
+                {user.name.charAt(0)}
+              </span>
+              <button onClick={handleLogout} className="flex h-9 w-9 items-center justify-center rounded-full text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors" title="Выйти">
+                <Icon name="LogOut" size={16} />
+              </button>
+            </div>
           </div>
         </div>
       </header>
@@ -573,7 +790,7 @@ export default function Index() {
           <h1 className="font-display text-3xl sm:text-4xl font-bold tracking-tight">
             Учёт <span className="text-neon-green text-glow">склада</span> в реальном времени
           </h1>
-          <p className="text-muted-foreground mt-1">Сканируйте, проводите приход и расход, контролируйте остатки по ячейкам.</p>
+          <p className="text-muted-foreground mt-1">Добро пожаловать, {user.name}. Сканируйте, проводите приход и расход, контролируйте остатки.</p>
         </div>
 
         <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-3 mb-7">
@@ -598,7 +815,7 @@ export default function Index() {
               key={t.id}
               onClick={() => setActive(t.id)}
               className={`flex items-center gap-2 rounded-xl px-4 py-2.5 text-sm font-medium whitespace-nowrap transition-all ${
-                active === t.id
+                activeTab === t.id
                   ? `${colorMap[t.color]} border`
                   : 'border border-transparent text-muted-foreground hover:text-foreground hover:bg-secondary'
               }`}
@@ -609,17 +826,17 @@ export default function Index() {
           ))}
         </div>
 
-        <div key={active}>
-          {active === 'income' && (
+        <div key={activeTab}>
+          {activeTab === 'income' && (
             <OpScreen tab={tab} invoices={incomes} onDelete={(id) => setIncomes((p) => p.filter((v) => v.id !== id))} />
           )}
-          {active === 'outcome' && (
+          {activeTab === 'outcome' && (
             <OpScreen tab={tab} invoices={outcomes} onDelete={(id) => setOutcomes((p) => p.filter((v) => v.id !== id))} />
           )}
-          {active === 'stock' && (
+          {activeTab === 'stock' && (
             <StockScreen items={stock} onDelete={(id) => setStock((p) => p.filter((v) => v.id !== id))} />
           )}
-          {active === 'catalog' && (
+          {activeTab === 'catalog' && isAdmin && (
             <CatalogScreen
               items={catalog}
               onAdd={(item) => setCatalog((p) => [item, ...p])}
@@ -627,19 +844,20 @@ export default function Index() {
               onDelete={(id) => setCatalog((p) => p.filter((v) => v.id !== id))}
             />
           )}
-          {active === 'cells' && (
+          {activeTab === 'cells' && isAdmin && (
             <CellsScreen
               cells={cells}
               onAdd={(cell) => setCells((p) => [cell, ...p])}
               onDelete={(id) => setCells((p) => p.filter((v) => v.id !== id))}
             />
           )}
-          {active === 'inventory' && (
+          {activeTab === 'inventory' && isAdmin && (
             <InventoryScreen zones={zones} onDelete={(id) => setZones((p) => p.filter((v) => v.id !== id))} />
           )}
-          {active === 'log' && (
+          {activeTab === 'log' && isAdmin && (
             <LogScreen entries={log} onDelete={(id) => setLog((p) => p.filter((v) => v.id !== id))} />
           )}
+          {activeTab === 'users' && isAdmin && <UsersScreen />}
         </div>
       </main>
     </div>
