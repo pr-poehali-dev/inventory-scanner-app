@@ -17,21 +17,13 @@ const TABS: { id: TabId; label: string; icon: string; color: string }[] = [
   { id: 'log', label: 'Журнал', icon: 'ScrollText', color: 'neon-green' },
 ];
 
-const STOCK = [
-  { sku: '4607012340012', name: 'Кабель UTP cat.6, 305м', cell: 'A-01-04', qty: 14, min: 5 },
-  { sku: '4601546021304', name: 'Коннектор RJ-45 (100шт)', cell: 'A-02-11', qty: 48, min: 20 },
-  { sku: '4810231025109', name: 'Роутер Wi-Fi AX1800', cell: 'B-03-07', qty: 6, min: 10 },
-  { sku: '4607890123456', name: 'Патч-корд 2м синий', cell: 'B-01-02', qty: 132, min: 50 },
-  { sku: '4602324110987', name: 'Источник питания 12В 5А', cell: 'C-05-03', qty: 0, min: 8 },
-];
-
-const LOG = [
-  { time: '14:32', user: 'Иванов А.', action: 'Приход', target: 'Кабель UTP cat.6 +10', color: 'neon-green' },
-  { time: '13:05', user: 'Петрова М.', action: 'Расход', target: 'Патч-корд 2м −24', color: 'neon-orange' },
-  { time: '11:48', user: 'Система', action: 'Перемещение', target: 'A-01-04 → A-01-06', color: 'neon-blue' },
-  { time: '10:12', user: 'Иванов А.', action: 'Инвентаризация', target: 'Зона B завершена', color: 'neon-purple' },
-  { time: '09:30', user: 'Сидоров К.', action: 'Приход', target: 'Роутер AX1800 +6', color: 'neon-green' },
-];
+type StockItem = { id: string; sku: string; name: string; cell: string; qty: number; min: number };
+type InvoiceItem = { id: string; sku: string; name: string; cell: string; qty: number };
+type Invoice = { id: string; date: string; num: string; items: InvoiceItem[] };
+type CatalogItem = { id: string; sku: string; name: string; unit: string };
+type Cell = { id: string; code: string; zone: string; capacity: number };
+type LogEntry = { id: string; time: string; user: string; action: string; target: string; color: string };
+type Zone = { id: string; name: string; done: number; total: number; status: string; color: string };
 
 const colorMap: Record<string, string> = {
   'neon-green': 'text-neon-green border-neon-green/40 bg-neon-green/10',
@@ -39,27 +31,51 @@ const colorMap: Record<string, string> = {
   'neon-blue': 'text-neon-blue border-neon-blue/40 bg-neon-blue/10',
   'neon-purple': 'text-neon-purple border-neon-purple/40 bg-neon-purple/10',
 };
-
 const textMap: Record<string, string> = {
-  'neon-green': 'text-neon-green',
-  'neon-orange': 'text-neon-orange',
-  'neon-blue': 'text-neon-blue',
-  'neon-purple': 'text-neon-purple',
+  'neon-green': 'text-neon-green', 'neon-orange': 'text-neon-orange',
+  'neon-blue': 'text-neon-blue', 'neon-purple': 'text-neon-purple',
 };
-
 const barMap: Record<string, string> = {
-  'neon-green': 'bg-neon-green',
-  'neon-orange': 'bg-neon-orange',
-  'neon-blue': 'bg-neon-blue',
-  'neon-purple': 'bg-neon-purple',
+  'neon-green': 'bg-neon-green', 'neon-orange': 'bg-neon-orange',
+  'neon-blue': 'bg-neon-blue', 'neon-purple': 'bg-neon-purple',
+};
+const dotMap: Record<string, string> = {
+  'neon-green': 'border-neon-green', 'neon-orange': 'border-neon-orange',
+  'neon-blue': 'border-neon-blue', 'neon-purple': 'border-neon-purple',
 };
 
-const dotMap: Record<string, string> = {
-  'neon-green': 'border-neon-green',
-  'neon-orange': 'border-neon-orange',
-  'neon-blue': 'border-neon-blue',
-  'neon-purple': 'border-neon-purple',
-};
+let _id = 0;
+const uid = () => String(++_id);
+
+function DeleteBtn({ onDelete }: { onDelete: () => void }) {
+  const [confirm, setConfirm] = useState(false);
+  if (confirm) {
+    return (
+      <div className="flex items-center gap-1 animate-fade-up">
+        <button
+          onClick={onDelete}
+          className="flex h-7 items-center gap-1 rounded-lg bg-destructive/20 border border-destructive/40 text-destructive px-2 text-xs font-medium hover:bg-destructive/30 transition-colors"
+        >
+          <Icon name="Trash2" size={12} /> Да
+        </button>
+        <button
+          onClick={() => setConfirm(false)}
+          className="flex h-7 items-center rounded-lg bg-secondary px-2 text-xs text-muted-foreground hover:text-foreground transition-colors"
+        >
+          Нет
+        </button>
+      </div>
+    );
+  }
+  return (
+    <button
+      onClick={() => setConfirm(true)}
+      className="flex h-7 w-7 items-center justify-center rounded-lg text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors opacity-0 group-hover:opacity-100"
+    >
+      <Icon name="Trash2" size={14} />
+    </button>
+  );
+}
 
 function Scanner({ accent }: { accent: string }) {
   return (
@@ -91,57 +107,95 @@ function Scanner({ accent }: { accent: string }) {
   );
 }
 
-function OpScreen({ tab }: { tab: typeof TABS[number] }) {
+function OpScreen({
+  tab, invoices, onDelete,
+}: {
+  tab: typeof TABS[number];
+  invoices: Invoice[];
+  onDelete: (id: string) => void;
+}) {
   const isIncome = tab.id === 'income';
   return (
     <div className="grid lg:grid-cols-[1fr_1.4fr] gap-5">
       <Scanner accent={tab.color} />
       <div className="glass rounded-2xl p-5 animate-fade-up" style={{ animationDelay: '0.08s' }}>
         <div className="flex items-center justify-between mb-4">
-          <p className="font-display font-semibold">{isIncome ? 'Накладная прихода' : 'Накладная расхода'}</p>
+          <p className="font-display font-semibold">{isIncome ? 'Накладные прихода' : 'Накладные расхода'}</p>
           <Button variant="outline" size="sm" className="border-neon-blue/40 text-neon-blue hover:bg-neon-blue/10">
-            <Icon name="FileText" size={15} className="mr-1.5" /> Сформировать PDF
+            <Icon name="FilePlus" size={15} className="mr-1.5" /> Новая накладная
           </Button>
         </div>
         <div className="space-y-2">
-          {STOCK.slice(0, 3).map((item, i) => (
-            <div key={item.sku} className="flex items-center justify-between rounded-xl border border-border bg-background/40 px-4 py-3 animate-fade-up" style={{ animationDelay: `${0.1 + i * 0.06}s` }}>
-              <div className="min-w-0">
-                <p className="font-medium truncate">{item.name}</p>
-                <p className="text-xs text-muted-foreground font-mono">{item.sku} · ячейка {item.cell}</p>
+          {invoices.map((inv, i) => (
+            <div key={inv.id} className="group rounded-xl border border-border bg-background/40 px-4 py-3 animate-fade-up" style={{ animationDelay: `${0.05 + i * 0.04}s` }}>
+              <div className="flex items-center justify-between">
+                <div className="min-w-0">
+                  <div className="flex items-center gap-2">
+                    <p className="font-medium font-mono text-sm">{inv.num}</p>
+                    <Badge className={`border text-[11px] ${colorMap[tab.color]}`}>
+                      {inv.items.length} поз.
+                    </Badge>
+                  </div>
+                  <p className="text-xs text-muted-foreground mt-0.5">{inv.date}</p>
+                </div>
+                <div className="flex items-center gap-2 ml-3">
+                  <Button variant="ghost" size="sm" className="h-7 px-2 text-xs text-neon-blue hover:bg-neon-blue/10">
+                    <Icon name="FileText" size={13} className="mr-1" /> PDF
+                  </Button>
+                  <DeleteBtn onDelete={() => onDelete(inv.id)} />
+                </div>
               </div>
-              <Badge className={`ml-3 shrink-0 border ${colorMap[tab.color]}`}>
-                {isIncome ? '+' : '−'}{(i + 1) * 4} шт
-              </Badge>
+              <div className="mt-2 space-y-1">
+                {inv.items.slice(0, 2).map((it) => (
+                  <div key={it.id} className="flex items-center justify-between text-xs text-muted-foreground">
+                    <span className="truncate">{it.name}</span>
+                    <span className="ml-2 shrink-0 font-mono">{isIncome ? '+' : '−'}{it.qty} шт</span>
+                  </div>
+                ))}
+                {inv.items.length > 2 && (
+                  <p className="text-[11px] text-muted-foreground/60">+ещё {inv.items.length - 2} позиций</p>
+                )}
+              </div>
             </div>
           ))}
+          {invoices.length === 0 && (
+            <div className="flex flex-col items-center gap-2 py-10 text-muted-foreground">
+              <Icon name="FileX" size={32} />
+              <p className="text-sm">Накладных пока нет</p>
+            </div>
+          )}
         </div>
-        <div className="mt-4 flex items-center justify-between border-t border-border pt-4">
-          <span className="text-muted-foreground text-sm">Позиций: 3 · Всего: 24 шт</span>
-          <Button className={`font-semibold ${isIncome ? 'bg-neon-green text-background hover:bg-neon-green/90' : 'bg-neon-orange text-background hover:bg-neon-orange/90'}`}>
-            <Icon name="Check" size={16} className="mr-1.5" /> Провести
-          </Button>
-        </div>
+        {invoices.length > 0 && (
+          <div className="mt-4 border-t border-border pt-3">
+            <Button className={`w-full font-semibold ${isIncome ? 'bg-neon-green text-background hover:bg-neon-green/90' : 'bg-neon-orange text-background hover:bg-neon-orange/90'}`}>
+              <Icon name="Check" size={16} className="mr-1.5" /> Провести все
+            </Button>
+          </div>
+        )}
       </div>
     </div>
   );
 }
 
-function StockScreen() {
+function StockScreen({ items, onDelete }: { items: StockItem[]; onDelete: (id: string) => void }) {
+  const [search, setSearch] = useState('');
+  const filtered = items.filter(
+    (it) => it.name.toLowerCase().includes(search.toLowerCase()) || it.cell.includes(search) || it.sku.includes(search)
+  );
   return (
     <div className="glass rounded-2xl overflow-hidden animate-fade-up">
       <div className="flex items-center justify-between p-5 border-b border-border">
         <p className="font-display font-semibold">Остатки по адресам хранения</p>
         <div className="relative w-64 max-w-[50vw]">
           <Icon name="Search" size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
-          <Input placeholder="Поиск по названию / ячейке" className="pl-9 bg-background/60" />
+          <Input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Поиск по названию / ячейке" className="pl-9 bg-background/60" />
         </div>
       </div>
       <div className="divide-y divide-border">
-        {STOCK.map((item, i) => {
+        {filtered.map((item, i) => {
           const low = item.qty <= item.min;
           return (
-            <div key={item.sku} className="flex items-center gap-4 px-5 py-4 hover:bg-background/40 transition-colors animate-fade-up" style={{ animationDelay: `${i * 0.05}s` }}>
+            <div key={item.id} className="group flex items-center gap-4 px-5 py-4 hover:bg-background/40 transition-colors animate-fade-up" style={{ animationDelay: `${i * 0.04}s` }}>
               <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-neon-blue/10 text-neon-blue border border-neon-blue/30 font-mono text-xs">
                 {item.cell.split('-')[0]}
               </span>
@@ -153,34 +207,35 @@ function StockScreen() {
                 <p className={`font-display text-xl font-bold ${low ? 'text-destructive' : 'text-foreground'}`}>{item.qty}</p>
                 <p className="text-[11px] text-muted-foreground">мин. {item.min}</p>
               </div>
-              {low && (
-                <Badge variant="destructive" className="ml-1">
-                  {item.qty === 0 ? 'Нет' : 'Мало'}
-                </Badge>
-              )}
+              {low && <Badge variant="destructive" className="ml-1">{item.qty === 0 ? 'Нет' : 'Мало'}</Badge>}
+              <DeleteBtn onDelete={() => onDelete(item.id)} />
             </div>
           );
         })}
+        {filtered.length === 0 && (
+          <div className="flex flex-col items-center gap-2 py-10 text-muted-foreground">
+            <Icon name="PackageSearch" size={32} />
+            <p className="text-sm">Ничего не найдено</p>
+          </div>
+        )}
       </div>
     </div>
   );
 }
 
-function InventoryScreen() {
-  const zones = [
-    { name: 'Зона A — Кабельная', done: 24, total: 24, status: 'Завершено', color: 'neon-green' },
-    { name: 'Зона B — Активное обор.', done: 12, total: 30, status: 'В процессе', color: 'neon-purple' },
-    { name: 'Зона C — Питание', done: 0, total: 18, status: 'Ожидает', color: 'neon-orange' },
-  ];
+function InventoryScreen({ zones, onDelete }: { zones: Zone[]; onDelete: (id: string) => void }) {
   return (
     <div className="grid md:grid-cols-3 gap-5">
       {zones.map((z, i) => {
         const pct = Math.round((z.done / z.total) * 100);
         return (
-          <div key={z.name} className="glass rounded-2xl p-5 animate-fade-up" style={{ animationDelay: `${i * 0.07}s` }}>
+          <div key={z.id} className="group glass rounded-2xl p-5 animate-fade-up" style={{ animationDelay: `${i * 0.07}s` }}>
             <div className="flex items-center justify-between mb-4">
               <Icon name="ClipboardCheck" size={20} className={textMap[z.color]} />
-              <Badge className={`border ${colorMap[z.color]}`}>{z.status}</Badge>
+              <div className="flex items-center gap-2">
+                <Badge className={`border ${colorMap[z.color]}`}>{z.status}</Badge>
+                <DeleteBtn onDelete={() => onDelete(z.id)} />
+              </div>
             </div>
             <p className="font-display font-semibold mb-1">{z.name}</p>
             <p className="text-xs text-muted-foreground mb-4">{z.done} из {z.total} позиций сверено</p>
@@ -193,23 +248,36 @@ function InventoryScreen() {
           </div>
         );
       })}
+      {zones.length === 0 && (
+        <div className="col-span-3 glass rounded-2xl flex flex-col items-center gap-2 py-14 text-muted-foreground">
+          <Icon name="ClipboardX" size={36} />
+          <p className="text-sm">Зон инвентаризации нет</p>
+        </div>
+      )}
     </div>
   );
 }
 
-function LogScreen() {
+function LogScreen({ entries, onDelete }: { entries: LogEntry[]; onDelete: (id: string) => void }) {
   return (
     <div className="glass rounded-2xl p-5 animate-fade-up">
       <p className="font-display font-semibold mb-4">Журнал операций и изменений</p>
+      {entries.length === 0 && (
+        <div className="flex flex-col items-center gap-2 py-10 text-muted-foreground">
+          <Icon name="ScrollText" size={32} />
+          <p className="text-sm">Журнал пуст</p>
+        </div>
+      )}
       <div className="relative pl-6">
         <div className="absolute left-[7px] top-2 bottom-2 w-px bg-border" />
-        {LOG.map((l, i) => (
-          <div key={i} className="relative pb-5 last:pb-0 animate-fade-up" style={{ animationDelay: `${i * 0.06}s` }}>
+        {entries.map((l, i) => (
+          <div key={l.id} className="group relative pb-5 last:pb-0 animate-fade-up" style={{ animationDelay: `${i * 0.05}s` }}>
             <span className={`absolute -left-[22px] top-1 h-3.5 w-3.5 rounded-full border-2 bg-background ${dotMap[l.color]}`} />
             <div className="flex flex-wrap items-center gap-2">
               <span className="font-mono text-xs text-muted-foreground">{l.time}</span>
               <Badge className={`border ${colorMap[l.color]}`}>{l.action}</Badge>
               <span className="text-sm">{l.target}</span>
+              <DeleteBtn onDelete={() => onDelete(l.id)} />
             </div>
             <p className="text-xs text-muted-foreground mt-1 flex items-center gap-1">
               <Icon name="User" size={12} /> {l.user}
@@ -222,13 +290,12 @@ function LogScreen() {
 }
 
 function CatalogScreen({
-  items,
-  onAdd,
-  onBulkAdd,
+  items, onAdd, onBulkAdd, onDelete,
 }: {
-  items: { sku: string; name: string; unit: string }[];
-  onAdd: (item: { sku: string; name: string; unit: string }) => void;
-  onBulkAdd: (items: { sku: string; name: string; unit: string }[]) => void;
+  items: CatalogItem[];
+  onAdd: (item: CatalogItem) => void;
+  onBulkAdd: (items: CatalogItem[]) => void;
+  onDelete: (id: string) => void;
 }) {
   const [sku, setSku] = useState('');
   const [name, setName] = useState('');
@@ -241,7 +308,7 @@ function CatalogScreen({
 
   const submit = () => {
     if (!sku.trim() || !name.trim()) return;
-    onAdd({ sku: sku.trim(), name: name.trim(), unit: unit.trim() || 'шт' });
+    onAdd({ id: uid(), sku: sku.trim(), name: name.trim(), unit: unit.trim() || 'шт' });
     setSku(''); setName(''); setUnit('шт');
   };
 
@@ -254,26 +321,15 @@ function CatalogScreen({
         const wb = XLSX.read(e.target?.result, { type: 'array' });
         const ws = wb.Sheets[wb.SheetNames[0]];
         const rows: Record<string, unknown>[] = XLSX.utils.sheet_to_json(ws, { defval: '' });
-
-        const parsed: { sku: string; name: string; unit: string }[] = [];
+        const parsed: CatalogItem[] = [];
         let skipped = 0;
-
         rows.forEach((row) => {
           const vals = Object.values(row).map((v) => String(v).trim());
-          // Ищем штрихкод: число 8-14 цифр
           const skuVal = vals.find((v) => /^\d{8,14}$/.test(v)) ?? '';
-          // Ищем наименование: самая длинная строка не похожая на число
-          const nameVal = vals
-            .filter((v) => v && !/^\d+$/.test(v) && v !== skuVal)
-            .sort((a, b) => b.length - a.length)[0] ?? '';
-
-          if (skuVal && nameVal) {
-            parsed.push({ sku: skuVal, name: nameVal, unit: 'шт' });
-          } else {
-            skipped++;
-          }
+          const nameVal = vals.filter((v) => v && !/^\d+$/.test(v) && v !== skuVal).sort((a, b) => b.length - a.length)[0] ?? '';
+          if (skuVal && nameVal) parsed.push({ id: uid(), sku: skuVal, name: nameVal, unit: 'шт' });
+          else skipped++;
         });
-
         onBulkAdd(parsed);
         setImportResult({ count: parsed.length, skipped });
       } catch {
@@ -285,22 +341,18 @@ function CatalogScreen({
   };
 
   const onDrop = (e: React.DragEvent) => {
-    e.preventDefault();
-    setDragging(false);
+    e.preventDefault(); setDragging(false);
     const file = e.dataTransfer.files[0];
     if (file) parseFile(file);
   };
 
   const filtered = items.filter(
-    (it) =>
-      it.name.toLowerCase().includes(search.toLowerCase()) ||
-      it.sku.includes(search)
+    (it) => it.name.toLowerCase().includes(search.toLowerCase()) || it.sku.includes(search)
   );
 
   return (
     <div className="grid lg:grid-cols-[1fr_1.5fr] gap-5">
       <div className="space-y-4">
-        {/* Excel импорт */}
         <div
           className={`glass rounded-2xl p-5 animate-fade-up border-2 border-dashed transition-colors cursor-pointer ${dragging ? 'border-neon-green bg-neon-green/5' : 'border-border hover:border-neon-green/40'}`}
           onDragOver={(e) => { e.preventDefault(); setDragging(true); }}
@@ -308,35 +360,26 @@ function CatalogScreen({
           onDrop={onDrop}
           onClick={() => fileRef.current?.click()}
         >
-          <input
-            ref={fileRef}
-            type="file"
-            accept=".xlsx,.xls,.csv"
-            className="hidden"
-            onChange={(e) => { if (e.target.files?.[0]) parseFile(e.target.files[0]); e.target.value = ''; }}
-          />
+          <input ref={fileRef} type="file" accept=".xlsx,.xls,.csv" className="hidden"
+            onChange={(e) => { if (e.target.files?.[0]) parseFile(e.target.files[0]); e.target.value = ''; }} />
           <div className="flex flex-col items-center text-center gap-2 py-2">
             <span className={`flex h-12 w-12 items-center justify-center rounded-2xl mb-1 ${dragging ? colorMap['neon-green'] : 'bg-secondary'}`}>
               {importing
                 ? <Icon name="LoaderCircle" size={24} className="animate-spin text-neon-green" />
-                : <Icon name="FileSpreadsheet" size={24} className={dragging ? 'text-neon-green' : 'text-muted-foreground'} />
-              }
+                : <Icon name="FileSpreadsheet" size={24} className={dragging ? 'text-neon-green' : 'text-muted-foreground'} />}
             </span>
             <p className="font-display font-semibold">{dragging ? 'Отпустите файл' : 'Загрузить из Excel'}</p>
-            <p className="text-xs text-muted-foreground">Перетащите .xlsx / .xls файл сюда или нажмите для выбора</p>
+            <p className="text-xs text-muted-foreground">Перетащите .xlsx / .xls файл сюда или нажмите</p>
             <p className="text-[11px] text-muted-foreground/60">Колонки: Наименование + Штрихкод — в любом порядке</p>
           </div>
           {importResult && (
             <div className={`mt-3 rounded-xl px-4 py-2.5 text-sm flex items-center gap-2 ${importResult.skipped === -1 ? 'bg-destructive/10 text-destructive' : 'bg-neon-green/10 text-neon-green border border-neon-green/30'}`}>
               {importResult.skipped === -1
                 ? <><Icon name="CircleX" size={15} /> Ошибка чтения файла</>
-                : <><Icon name="CircleCheck" size={15} /> Загружено {importResult.count} товаров{importResult.skipped > 0 ? `, пропущено ${importResult.skipped}` : ''}</>
-              }
+                : <><Icon name="CircleCheck" size={15} /> Загружено {importResult.count} товаров{importResult.skipped > 0 ? `, пропущено ${importResult.skipped}` : ''}</>}
             </div>
           )}
         </div>
-
-        {/* Ручное добавление */}
         <div className="glass rounded-2xl p-5 animate-fade-up" style={{ animationDelay: '0.06s' }}>
           <p className="font-display font-semibold mb-3 text-sm">Добавить вручную</p>
           <div className="space-y-2.5">
@@ -349,8 +392,6 @@ function CatalogScreen({
           </div>
         </div>
       </div>
-
-      {/* Список товаров */}
       <div className="glass rounded-2xl overflow-hidden animate-fade-up" style={{ animationDelay: '0.1s' }}>
         <div className="flex items-center gap-3 p-4 border-b border-border">
           <div className="relative flex-1">
@@ -367,7 +408,7 @@ function CatalogScreen({
             </div>
           )}
           {filtered.map((item, i) => (
-            <div key={item.sku + i} className="flex items-center gap-3 px-4 py-3 hover:bg-background/40 transition-colors">
+            <div key={item.id} className="group flex items-center gap-3 px-4 py-3 hover:bg-background/40 transition-colors">
               <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-neon-green/10 text-neon-green border border-neon-green/20">
                 <Icon name="Tag" size={13} />
               </span>
@@ -376,6 +417,7 @@ function CatalogScreen({
                 <p className="text-[11px] text-muted-foreground font-mono">{item.sku}</p>
               </div>
               <span className="text-xs text-muted-foreground shrink-0">{item.unit}</span>
+              <DeleteBtn onDelete={() => onDelete(item.id)} />
             </div>
           ))}
         </div>
@@ -385,11 +427,11 @@ function CatalogScreen({
 }
 
 function CellsScreen({
-  cells,
-  onAdd,
+  cells, onAdd, onDelete,
 }: {
-  cells: { code: string; zone: string; capacity: number }[];
-  onAdd: (cell: { code: string; zone: string; capacity: number }) => void;
+  cells: Cell[];
+  onAdd: (cell: Cell) => void;
+  onDelete: (id: string) => void;
 }) {
   const [code, setCode] = useState('');
   const [zone, setZone] = useState('A');
@@ -397,9 +439,8 @@ function CellsScreen({
 
   const submit = () => {
     if (!code.trim()) return;
-    onAdd({ code: code.trim().toUpperCase(), zone: zone.trim().toUpperCase() || 'A', capacity: Number(capacity) || 0 });
-    setCode('');
-    setCapacity('100');
+    onAdd({ id: uid(), code: code.trim().toUpperCase(), zone: zone.trim().toUpperCase() || 'A', capacity: Number(capacity) || 0 });
+    setCode(''); setCapacity('100');
   };
 
   return (
@@ -438,15 +479,24 @@ function CellsScreen({
           <Badge className={`border ${colorMap['neon-blue']}`}>{cells.length} ячеек</Badge>
         </div>
         <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 max-h-[440px] overflow-y-auto pr-1">
-          {cells.map((c, i) => (
-            <div key={c.code + i} className="rounded-xl border border-border bg-background/40 p-3 hover:bg-background/60 transition-colors">
+          {cells.map((c) => (
+            <div key={c.id} className="group rounded-xl border border-border bg-background/40 p-3 hover:bg-background/60 transition-colors">
               <div className="flex items-center justify-between mb-2">
                 <span className="font-mono text-sm font-semibold text-neon-blue">{c.code}</span>
-                <span className="flex h-6 w-6 items-center justify-center rounded-lg bg-neon-blue/10 text-neon-blue text-[11px] font-bold">{c.zone}</span>
+                <div className="flex items-center gap-1">
+                  <span className="flex h-6 w-6 items-center justify-center rounded-lg bg-neon-blue/10 text-neon-blue text-[11px] font-bold">{c.zone}</span>
+                  <DeleteBtn onDelete={() => onDelete(c.id)} />
+                </div>
               </div>
               <p className="text-xs text-muted-foreground">Вместимость: {c.capacity}</p>
             </div>
           ))}
+          {cells.length === 0 && (
+            <div className="col-span-3 flex flex-col items-center gap-2 py-10 text-muted-foreground">
+              <Icon name="Grid3x3" size={32} />
+              <p className="text-sm">Ячеек пока нет</p>
+            </div>
+          )}
         </div>
       </div>
     </div>
@@ -455,17 +505,46 @@ function CellsScreen({
 
 export default function Index() {
   const [active, setActive] = useState<TabId>('income');
-  const [catalog, setCatalog] = useState(
-    STOCK.map((s) => ({ sku: s.sku, name: s.name, unit: 'шт' }))
-  );
-  const [cells, setCells] = useState([
-    { code: 'A-01-04', zone: 'A', capacity: 200 },
-    { code: 'A-02-11', zone: 'A', capacity: 150 },
-    { code: 'B-03-07', zone: 'B', capacity: 80 },
-    { code: 'B-01-02', zone: 'B', capacity: 300 },
-    { code: 'C-05-03', zone: 'C', capacity: 120 },
+
+  const [incomes, setIncomes] = useState<Invoice[]>([
+    { id: uid(), date: '24.06.2026, 14:30', num: '№ПР-0001', items: [{ id: uid(), sku: '4607012340012', name: 'Кабель UTP cat.6', cell: 'A-01-04', qty: 10 }, { id: uid(), sku: '4601546021304', name: 'Коннектор RJ-45', cell: 'A-02-11', qty: 100 }] },
+    { id: uid(), date: '23.06.2026, 09:30', num: '№ПР-0002', items: [{ id: uid(), sku: '4810231025109', name: 'Роутер Wi-Fi AX1800', cell: 'B-03-07', qty: 6 }] },
   ]);
+  const [outcomes, setOutcomes] = useState<Invoice[]>([
+    { id: uid(), date: '24.06.2026, 13:05', num: '№РС-0001', items: [{ id: uid(), sku: '4607890123456', name: 'Патч-корд 2м синий', cell: 'B-01-02', qty: 24 }] },
+  ]);
+  const [stock, setStock] = useState<StockItem[]>([
+    { id: uid(), sku: '4607012340012', name: 'Кабель UTP cat.6, 305м', cell: 'A-01-04', qty: 14, min: 5 },
+    { id: uid(), sku: '4601546021304', name: 'Коннектор RJ-45 (100шт)', cell: 'A-02-11', qty: 48, min: 20 },
+    { id: uid(), sku: '4810231025109', name: 'Роутер Wi-Fi AX1800', cell: 'B-03-07', qty: 6, min: 10 },
+    { id: uid(), sku: '4607890123456', name: 'Патч-корд 2м синий', cell: 'B-01-02', qty: 132, min: 50 },
+    { id: uid(), sku: '4602324110987', name: 'Источник питания 12В 5А', cell: 'C-05-03', qty: 0, min: 8 },
+  ]);
+  const [catalog, setCatalog] = useState<CatalogItem[]>(
+    stock.map((s) => ({ id: uid(), sku: s.sku, name: s.name, unit: 'шт' }))
+  );
+  const [cells, setCells] = useState<Cell[]>([
+    { id: uid(), code: 'A-01-04', zone: 'A', capacity: 200 },
+    { id: uid(), code: 'A-02-11', zone: 'A', capacity: 150 },
+    { id: uid(), code: 'B-03-07', zone: 'B', capacity: 80 },
+    { id: uid(), code: 'B-01-02', zone: 'B', capacity: 300 },
+    { id: uid(), code: 'C-05-03', zone: 'C', capacity: 120 },
+  ]);
+  const [zones, setZones] = useState<Zone[]>([
+    { id: uid(), name: 'Зона A — Кабельная', done: 24, total: 24, status: 'Завершено', color: 'neon-green' },
+    { id: uid(), name: 'Зона B — Активное обор.', done: 12, total: 30, status: 'В процессе', color: 'neon-purple' },
+    { id: uid(), name: 'Зона C — Питание', done: 0, total: 18, status: 'Ожидает', color: 'neon-orange' },
+  ]);
+  const [log, setLog] = useState<LogEntry[]>([
+    { id: uid(), time: '14:32', user: 'Иванов А.', action: 'Приход', target: 'Кабель UTP cat.6 +10', color: 'neon-green' },
+    { id: uid(), time: '13:05', user: 'Петрова М.', action: 'Расход', target: 'Патч-корд 2м −24', color: 'neon-orange' },
+    { id: uid(), time: '11:48', user: 'Система', action: 'Перемещение', target: 'A-01-04 → A-01-06', color: 'neon-blue' },
+    { id: uid(), time: '10:12', user: 'Иванов А.', action: 'Инвентаризация', target: 'Зона B завершена', color: 'neon-purple' },
+    { id: uid(), time: '09:30', user: 'Сидоров К.', action: 'Приход', target: 'Роутер AX1800 +6', color: 'neon-green' },
+  ]);
+
   const tab = TABS.find((t) => t.id === active)!;
+  const lowCount = stock.filter((s) => s.qty <= s.min).length;
 
   return (
     <div className="min-h-screen">
@@ -499,11 +578,11 @@ export default function Index() {
 
         <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-3 mb-7">
           {[
-            { l: 'Всего SKU', v: '1 284', i: 'Tags', c: 'neon-blue' },
-            { l: 'Приход сегодня', v: '+342', i: 'ArrowDownToLine', c: 'neon-green' },
-            { l: 'Расход сегодня', v: '−218', i: 'ArrowUpFromLine', c: 'neon-orange' },
-            { l: 'Заполнено ячеек', v: '78%', i: 'Boxes', c: 'neon-purple' },
-            { l: 'Мало на складе', v: '2', i: 'TriangleAlert', c: 'neon-orange' },
+            { l: 'Всего SKU', v: String(catalog.length), i: 'Tags', c: 'neon-blue' },
+            { l: 'Приходов', v: String(incomes.length), i: 'ArrowDownToLine', c: 'neon-green' },
+            { l: 'Расходов', v: String(outcomes.length), i: 'ArrowUpFromLine', c: 'neon-orange' },
+            { l: 'Ячеек', v: String(cells.length), i: 'Boxes', c: 'neon-purple' },
+            { l: 'Мало на складе', v: String(lowCount), i: 'TriangleAlert', c: 'neon-orange' },
           ].map((s, i) => (
             <div key={s.l} className="glass rounded-2xl p-4 animate-fade-up" style={{ animationDelay: `${i * 0.05}s` }}>
               <Icon name={s.i} size={18} className={`${textMap[s.c]} mb-2`} />
@@ -531,20 +610,36 @@ export default function Index() {
         </div>
 
         <div key={active}>
-          {(active === 'income' || active === 'outcome') && <OpScreen tab={tab} />}
-          {active === 'stock' && <StockScreen />}
+          {active === 'income' && (
+            <OpScreen tab={tab} invoices={incomes} onDelete={(id) => setIncomes((p) => p.filter((v) => v.id !== id))} />
+          )}
+          {active === 'outcome' && (
+            <OpScreen tab={tab} invoices={outcomes} onDelete={(id) => setOutcomes((p) => p.filter((v) => v.id !== id))} />
+          )}
+          {active === 'stock' && (
+            <StockScreen items={stock} onDelete={(id) => setStock((p) => p.filter((v) => v.id !== id))} />
+          )}
           {active === 'catalog' && (
             <CatalogScreen
               items={catalog}
-              onAdd={(item) => setCatalog((prev) => [item, ...prev])}
-              onBulkAdd={(newItems) => setCatalog((prev) => [...newItems, ...prev])}
+              onAdd={(item) => setCatalog((p) => [item, ...p])}
+              onBulkAdd={(newItems) => setCatalog((p) => [...newItems, ...p])}
+              onDelete={(id) => setCatalog((p) => p.filter((v) => v.id !== id))}
             />
           )}
           {active === 'cells' && (
-            <CellsScreen cells={cells} onAdd={(cell) => setCells((prev) => [cell, ...prev])} />
+            <CellsScreen
+              cells={cells}
+              onAdd={(cell) => setCells((p) => [cell, ...p])}
+              onDelete={(id) => setCells((p) => p.filter((v) => v.id !== id))}
+            />
           )}
-          {active === 'inventory' && <InventoryScreen />}
-          {active === 'log' && <LogScreen />}
+          {active === 'inventory' && (
+            <InventoryScreen zones={zones} onDelete={(id) => setZones((p) => p.filter((v) => v.id !== id))} />
+          )}
+          {active === 'log' && (
+            <LogScreen entries={log} onDelete={(id) => setLog((p) => p.filter((v) => v.id !== id))} />
+          )}
         </div>
       </main>
     </div>
